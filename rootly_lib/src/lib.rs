@@ -59,12 +59,11 @@ impl Rootly {
 
     pub fn write_log(&self, export_logs_service_request: ExportLogsServiceRequest, ) {
         let logs = parsers::logs_parser(export_logs_service_request);
-        println!("{:?}", logs);
         let mut log_file:LogFile = LogFile::new();
         for log in logs {
             log_file.add_log(log);
         }
-        println!("{:?}", log_file.to_bytes());
+        self.storage.write_mutable_logs(log_file.to_bytes());
     }
 
 }

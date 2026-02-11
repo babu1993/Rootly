@@ -1,10 +1,9 @@
-use std::iter::Map;
 use axum::body::{to_bytes, Body};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
 use rootly_lib::Rootly;
 use std::sync::Arc;
@@ -26,8 +25,6 @@ pub async fn handle_traces(
     if content_type == PROTOBUF_CONTENT_TYPE {
         let bytes = to_bytes(body, usize::MAX).await.unwrap_or_default();
         let request = ExportTraceServiceRequest::decode(bytes).unwrap();
-        // println!("Received proto trace data ({:?} bytes)", request)
-        // write_trace_log(request);
         rootly_ref.write_trace_log(request);
     }
     else if content_type == JSON_CONTENT_TYPE {
@@ -65,8 +62,6 @@ pub async fn handle_logs(
     if content_type == PROTOBUF_CONTENT_TYPE {
         let bytes = to_bytes(body, usize::MAX).await.unwrap_or_default();
         let request = ExportLogsServiceRequest::decode(bytes).unwrap();
-        // println!("Received proto trace data ({:?} bytes)", request);
-        // write_log(request);
         rootly.write_log(request);
     }
     else if content_type == JSON_CONTENT_TYPE {

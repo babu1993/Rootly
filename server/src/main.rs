@@ -9,6 +9,7 @@ use axum::{
 use api::{handle_logs, handle_metrics, handle_traces};
 use rootly_lib::{Rootly};
 use std::sync::Arc;
+use tokio_cron_scheduler::{JobScheduler, Job, JobSchedulerError};
 
 fn args_parser() -> std::collections::HashMap<String, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,15 +35,24 @@ async fn main() {
     println!("{:?}", args_map);
     let data_path = args_map.get("--data_path").cloned().unwrap();
     let local_storage = local_storage::LocalStorage::new(&data_path);
-    let rootly = Arc::new(Rootly::init(data_path, Box::new(local_storage)));
+    let rootly = Rootly::init(data_path, Box::new(local_storage));
+    let rootly_ref = Arc::new(rootly);
 
     let app = Router::new()
         .route("/v1/traces", post(handle_traces))
         .route("/v1/metrics", post(handle_metrics))
         .route("/v1/logs", post(handle_logs))
-        .with_state(rootly);
+        .with_state(rootly_ref);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:4318").await.unwrap();
     println!("OTLP HTTP Server listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
+    let scheduler = JobScheduler::new().await.unwrap();
+    scheduler.add(
+        Job::new("1/10 * * * * *", |_uuid, _l| {
+            let data_path:String = rootly_ref.get_config().get::<String>("data_path").unwrap_or_default().to_string();
+            println!("{}",format!("I run every 10 seconds: {data_path}"));
+        }).unwrap()
+    ).await.unwrap();
+    scheduler.start().await;
+    axum::serve(listener, app).await;
 }

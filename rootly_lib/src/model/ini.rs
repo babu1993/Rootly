@@ -26,6 +26,10 @@ impl IniFile {
     pub fn get_trace_file_name(&self) -> &String {
         &self.mutable_trace_file
     }
+
+    pub fn save(&self, storage: &Box<dyn crate::storage_api::Storage>) {
+        storage.write_config(self.to_bytes());
+    }
 }
 
 impl ReadableModel for IniFile {
