@@ -3,7 +3,6 @@ pub mod storage_api;
 mod model;
 mod parsers;
 
-use crate::model::header::Header;
 use crate::model::ini::IniFile;
 use crate::model::log::LogFile;
 use crate::model::ReadableModel;
@@ -63,7 +62,7 @@ impl Rootly {
         for log in logs {
             log_file.add_log(log);
         }
-        self.storage.write_mutable_logs(log_file.to_bytes());
+        // self.storage.write_mutable_logs(log_file.to_bytes());
     }
 
 }
