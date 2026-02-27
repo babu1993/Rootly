@@ -3,11 +3,11 @@ use crate::model::ReadableModel;
 use super::header::Header;
 pub struct MutableHeader {
     header: Header,
-    total_length: u64,
+    total_length: usize,
 }
 
 impl MutableHeader {
-    pub fn new(header: Header, total_length: u64) -> Self {
+    pub fn new(header: Header, total_length: usize) -> Self {
         MutableHeader { header, total_length }
     }
 
@@ -19,11 +19,11 @@ impl MutableHeader {
         self.header = header;
     }
 
-    pub fn get_total_length(&self) -> u64 {
+    pub fn get_total_length(&self) -> usize {
         self.total_length
     }
 
-    pub fn set_total_length(&mut self, length: u64) {
+    pub fn set_total_length(&mut self, length: usize) {
         self.total_length = length;
     }
 }
@@ -31,8 +31,8 @@ impl MutableHeader {
 impl ReadableModel for MutableHeader {
     fn from_bytes(data: &[u8]) -> Self {
         let header = Header::from_bytes(&data[0..super::HEADER_SEGMENT_LENGTH]);
-        let total_length = BigEndian::read_u64(&data[super::HEADER_SEGMENT_LENGTH..]);
-        MutableHeader { header, total_length }
+        let total_length = BigEndian::read_u64(&data[super::HEADER_SEGMENT_LENGTH..]) as usize;
+        MutableHeader { header, total_length}
     }
 
     fn to_bytes(&self) -> Vec<u8> {

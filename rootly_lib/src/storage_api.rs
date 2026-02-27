@@ -1,15 +1,10 @@
-use std::path::Path;
-use std::io::{Seek, SeekFrom};
-
-pub const MUTABLE_LOGS_FILE_DIRECTORY: &str = "mt_logs";
-pub const MUTABLE_TRACES_FILE_DIRECTORY: &str = "mt_traces";
-
-pub trait Storage: Send + Sync {
-    fn read_config(&self) -> Option<Vec<u8>>;
-    fn write_config(&self, config: Vec<u8>);
-
+pub trait Storage {
     fn write(&self, file_name: &str, data: Vec<u8>, offset: Option<usize>);
 
-    fn read(&self, file_name: &str, offset: Option<usize>) -> Vec<u8>;
+    fn read(&self, file_name: &str, offset: Option<usize>, size: Option<usize>) -> Option<Vec<u8>>;
+
+    fn delete(&self, file_name: &str);
+
+    fn is_file_exists(&self, file_name: &str) -> bool;
 
 }

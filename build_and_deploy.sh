@@ -2,10 +2,12 @@
 
 PROFILE="default"
 REGION="us-east-1"
-SUBNET_IDS="subnet-0d8d6cebedd067e79"
-SECURITY_GROUP_IDS="sg-0ffbe32320a1158d0"
-VPC_ID="vpc-05ed4f92b17684467"
-LOCAL_MOUNT_PATH="/mnt/efs"
+SUBNET_IDS="subnet-02bb44a3f461bba21"
+SECURITY_GROUP_IDS="sg-03b5bc583cc303d0f"
+VPC_ID="vpc-06f4c9d49639d1048"
+LOCAL_MOUNT_PATH="/mnt/rootly"
+FUNCTION_NAMES=()
+
 # Help function
 usage() {
     echo "Usage: $0 [options]"
@@ -57,11 +59,12 @@ ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/dev-fileservice-rag-dispatcher-lambda-
 API_NAME="Rootly"
 ADD_LOGS_FUNC="addLogs"
 GET_LOGS_FUNC="getLogs"
+INIT_FUNC="init"
 LOGS_RESOURCE_PATH="logs"
 STAGE_NAME="prod"
 EFS_NAME="RootlyStorage"
 EFS_ACCESS_POINT_ARN=""
-LAMBDA_LISTS=($ADD_LOGS_FUNC $GET_LOGS_FUNC)
+LAMBDA_LISTS=($ADD_LOGS_FUNC $GET_LOGS_FUNC $INIT_FUNC)
 
 EFS_ID=$(aws efs describe-file-systems --region $REGION \
     --query "FileSystems[?Name=='$EFS_NAME'].FileSystemId" \
@@ -99,23 +102,20 @@ if [ -z "$EFS_ID" ] || [ "$EFS_ID" == "None" ]; then
     AP_ID=$(aws efs create-access-point \
         --file-system-id $EFS_ID \
         --posix-user Uid=1000,Gid=1000 \
-        --root-directory "Path=/lambda,CreationInfo={OwnerUid=1000,OwnerGid=1000,Permissions=777}" \
+        --root-directory "Path=/rootly,CreationInfo={OwnerUid=1000,OwnerGid=1000,Permissions=777}" \
         --region $REGION \
         --query 'AccessPointId' --output text)
+    EFS_ACCESS_POINT_ARN=$(aws efs describe-access-points --file-system-id $EFS_ID --query "AccessPoints[0].AccessPointArn" --output text)
 else
     echo "EFS $EFS_NAME already exists with ID: $EFS_ID"
-    EFS_ACCESS_POINT_ARN=$(aws efs describe-access-points --file-system-id fs-0afbeb061a144bc21 --query "AccessPoints[0].AccessPointArn" --output text)
+    EFS_ACCESS_POINT_ARN=$(aws efs describe-access-points --file-system-id $EFS_ID --query "AccessPoints[0].AccessPointArn" --output text)
 fi
 
 echo "Checking/Creating Lambda Function..."
 for FUNC_NAME in "${LAMBDA_LISTS[@]}"; do
-  cargo lambda build --manifest-path ./functions/$FUNC_NAME/Cargo.toml --release --arm64 --bin $FUNC_NAME
-  if aws lambda get-function --function-name $FUNC_NAME >/dev/null 2>&1; then
-      echo "Lambda function $FUNC_NAME already exists."
-  else
-    cargo lambda deploy --manifest-path ./functions/$FUNC_NAME/Cargo.toml --iam-role $ROLE_ARN -r $REGION -p $PROFILE --subnet-ids subnet-0d8d6cebedd067e79 \
-    --security-group-ids sg-0ffbe32320a1158d0 --binary-name $FUNC_NAME
-  fi
+  cargo lambda build --manifest-path ./aws/functions/$FUNC_NAME/Cargo.toml --release --arm64 --bin $FUNC_NAME
+  cargo lambda deploy --manifest-path ./aws/functions/$FUNC_NAME/Cargo.toml --iam-role $ROLE_ARN -r $REGION -p $PROFILE --subnet-ids $SUBNET_IDS \
+  --security-group-ids $SECURITY_GROUP_IDS --binary-name $FUNC_NAME --memory 1024 --timeout 30
 done
 for FUNC_NAME in "${LAMBDA_LISTS[@]}"; do
   while true; do
@@ -179,6 +179,32 @@ done
 echo "Deploying API..."
 aws apigateway create-deployment --rest-api-id $API_ID --stage-name $STAGE_NAME >/dev/null
 
-echo "---"
+echo "-------------------------------------------------------------------------------------------"
+echo "Events Section"
+
+INIT_RULE_ARN=$(aws events put-rule \
+    --name "${INIT_FUNC}_RULE" \
+    --schedule-expression "rate(1 minute)" \
+    --state ENABLED \
+    --region "$REGION" \
+    --query 'RuleArn' \
+    --output text)
+echo "Rule created with ARN: $INIT_RULE_ARN"
+echo "Adding permission to Lambda..."
+aws lambda add-permission \
+    --function-name "$INIT_FUNC" \
+    --statement-id "${INIT_FUNC}_EventBridgeLambdaPermission" \
+    --action "lambda:InvokeFunction" \
+    --principal "events.amazonaws.com" \
+    --source-arn "$INIT_RULE_ARN" \
+    --region "$REGION"
+echo "Setting Lambda as target..."
+FUNCTION_ARN=$(aws lambda get-function --function-name "$INIT_FUNC" --query 'Configuration.FunctionArn' --output text)
+aws events put-targets \
+    --rule "${INIT_FUNC}_RULE" \
+    --targets "Id"="1","Arn"="$FUNCTION_ARN" \
+    --region "$REGION"
+
+echo "-------------------------------------------------------------------------------------------"
 echo "Deployment Complete!"
 echo "URL: https://$API_ID.execute-api.$REGION.amazonaws.com/$STAGE_NAME/$LOGS_RESOURCE_PATH"

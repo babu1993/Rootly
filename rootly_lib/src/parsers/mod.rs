@@ -1,8 +1,6 @@
-use crate::model::log::Log;
-use crate::model::trace::Trace;
+use crate::model::prelude::*;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
-use opentelemetry_proto::tonic::resource::v1::Resource;
 
 pub fn logs_parser(logs_request: ExportLogsServiceRequest) -> Vec<Log> {
     let mut logs:Vec<Log> = vec![];

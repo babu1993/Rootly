@@ -1,0 +1,26 @@
+[package]
+name = "addLogs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lambda_http = "1.0.0"
+rootly_lib = { path = "../../../rootly_lib" }
+serde_json = "1.0.149"
+layers = { path = "../../layers" }
+
+tokio = { version = "1", features = ["macros"] }
+opentelemetry-proto = "0.31.0"
+bytes = "1.11.1"
+opentelemetry = "0.31.0"
+prost = "0.14.3"
+base64 = "0.22.1"
+
+[package.metadata.lambda.deploy]
+memory = 512                    # Function's memory
+timeout = 30                    # Function's execution timeout
+
+[package.metadata.lambda.deploy.env]
+LOG_LEVEL = "info"              # Log level for the function
+
+

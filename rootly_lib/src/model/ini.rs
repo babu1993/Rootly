@@ -28,7 +28,7 @@ impl IniFile {
     }
 
     pub fn save(&self, storage: &Box<dyn crate::storage_api::Storage>) {
-        storage.write_config(self.to_bytes());
+        storage.write("rootly", self.to_bytes(), None);
     }
 }
 

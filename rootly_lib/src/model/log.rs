@@ -2,6 +2,7 @@ use opentelemetry_proto::tonic::common::v1::AnyValue;
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
 use serde_json::{json, Value as JsonValue};
 use crate::model::ReadableModel;
+use crate::model::prelude::*;
 use std::mem::size_of;
 
 #[derive(Debug)]
@@ -140,8 +141,8 @@ impl ReadableModel for Log {
     }
 }
 
-struct LogEntry {
-    length: u32,
+pub struct LogEntry {
+    length: usize,
     log: Log,
 }
 
@@ -149,16 +150,20 @@ impl LogEntry {
     pub fn default(log: Log) -> Self {
 
         LogEntry {
-            length: (log.size_in_bytes() + size_of::<u32>()) as u32,
+            length: log.size_in_bytes() + size_of::<usize>(),
             log
         }
+    }
+
+    pub fn get_length(&self) -> usize {
+        self.length
     }
 }
 
 impl ReadableModel for LogEntry {
     fn from_bytes(data: &[u8]) -> Self {
-        let length = u32::from_be_bytes(data[0..4].try_into().unwrap());
-        let log = Log::from_bytes(&data[4..(4 + (length as usize) - 4)]);
+        let length = u64::from_be_bytes(data[0..8].try_into().unwrap()) as usize;
+        let log = Log::from_bytes(&data[8..length]);
         LogEntry {
             length,
             log
@@ -178,14 +183,14 @@ impl ReadableModel for LogEntry {
 }
 
 pub struct LogFile {
-    header: super::mutable_headers::MutableHeader,
+    header: MutableHeader,
     logs: Vec<LogEntry>
 }
 
 impl LogFile {
     pub fn new() -> Self {
-        let header = super::mutable_headers::MutableHeader::new(
-            super::header::Header::default(),
+        let header = MutableHeader::new(
+            Header::default(),
             0
         );
         LogFile {
@@ -196,13 +201,23 @@ impl LogFile {
 
     pub fn add_log(&mut self, log: Log) {
         let log_entry = LogEntry::default(log);
+        self.header.set_total_length(self.header.get_total_length() + log_entry.get_length());
         self.logs.push(log_entry);
+
+    }
+    
+    pub fn get_header(&self) -> &MutableHeader {
+        &self.header
+    }
+    
+    pub fn get_logs(&self) -> &Vec<LogEntry> {
+        &self.logs
     }
 }
 
 impl ReadableModel for LogFile {
     fn from_bytes(data: &[u8]) -> Self {
-        let header = super::mutable_headers::MutableHeader::from_bytes(&data[0..super::HEADER_SEGMENT_LENGTH]);
+        let header = MutableHeader::from_bytes(&data[0..super::HEADER_SEGMENT_LENGTH]);
         let mut offset = header.size_in_bytes();
         let mut logs = Vec::new();
 
