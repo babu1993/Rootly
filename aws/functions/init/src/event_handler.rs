@@ -11,6 +11,7 @@ pub(crate)async fn function_handler(event: LambdaEvent<CloudWatchEvent>) -> Resu
     // Extract some useful information from the request
     let payload = event.payload;
     tracing::info!("Payload: {:?}", payload);
+    init_rootly();
     let rootly = get_rootly();
     tracing::info!("Rootly initialized: {:?}", rootly.get_mutable_logs_file_name());
     Ok(())

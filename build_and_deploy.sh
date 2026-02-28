@@ -6,7 +6,10 @@ SUBNET_IDS="subnet-02bb44a3f461bba21"
 SECURITY_GROUP_IDS="sg-03b5bc583cc303d0f"
 VPC_ID="vpc-06f4c9d49639d1048"
 LOCAL_MOUNT_PATH="/mnt/rootly"
+BINARY_TYPES='application/x-protobuf'
 FUNCTION_NAMES=()
+
+PATCH_OPERATIONS=$(echo $BINARY_TYPES | sed 's| |\",\"|g' | sed 's|^|[{"op":"replace","path":"/binaryMediaTypes","value":["|' | sed 's|$|"]}]|')
 
 # Help function
 usage() {
@@ -60,6 +63,7 @@ API_NAME="Rootly"
 ADD_LOGS_FUNC="addLogs"
 GET_LOGS_FUNC="getLogs"
 INIT_FUNC="init"
+V1='v1'
 LOGS_RESOURCE_PATH="logs"
 STAGE_NAME="prod"
 EFS_NAME="RootlyStorage"
@@ -114,24 +118,24 @@ fi
 echo "Checking/Creating Lambda Function..."
 for FUNC_NAME in "${LAMBDA_LISTS[@]}"; do
   cargo lambda build --manifest-path ./aws/functions/$FUNC_NAME/Cargo.toml --release --arm64 --bin $FUNC_NAME
-  cargo lambda deploy --manifest-path ./aws/functions/$FUNC_NAME/Cargo.toml --iam-role $ROLE_ARN -r $REGION -p $PROFILE --subnet-ids $SUBNET_IDS \
+  cargo lambda deploy "${API_NAME}_${FUNC_NAME}" --manifest-path ./aws/functions/$FUNC_NAME/Cargo.toml --iam-role $ROLE_ARN -r $REGION -p $PROFILE --subnet-ids $SUBNET_IDS \
   --security-group-ids $SECURITY_GROUP_IDS --binary-name $FUNC_NAME --memory 1024 --timeout 30
 done
 for FUNC_NAME in "${LAMBDA_LISTS[@]}"; do
   while true; do
-    STATUS=$(aws lambda get-function --function-name $FUNC_NAME --query 'Configuration.State' --output text)
+    STATUS=$(aws lambda get-function --function-name "${API_NAME}_${FUNC_NAME}" --query 'Configuration.State' --output text)
     if [ "$STATUS" == "Active" ]; then
-      echo "Lambda function $FUNC_NAME is active!"
-      aws lambda update-function-configuration --function-name $FUNC_NAME \
+      echo "Lambda function ${API_NAME}_${FUNC_NAME} is active!"
+      aws lambda update-function-configuration --function-name "${API_NAME}_${FUNC_NAME}" \
           --file-system-configs "Arn=$EFS_ACCESS_POINT_ARN,LocalMountPath=$LOCAL_MOUNT_PATH" \
           --environment "Variables={STORAGE_PATH='$LOCAL_MOUNT_PATH'}">/dev/null
       break
     fi
-    echo "Current status of $FUNC_NAME: $STATUS... checking again in 5s"
+    echo "Current status of ${API_NAME}_${FUNC_NAME}: $STATUS... checking again in 5s"
     sleep 5
   done
 done
-
+echo "-------------------------------------------------------------------------------------------------------------"
 echo "Checking/Creating REST API..."
 API_ID=$(aws apigateway get-rest-apis --query "items[?name=='$API_NAME'].id" --output text)
 
@@ -144,12 +148,19 @@ fi
 
 echo "Finding Root Resource..."
 ROOT_ID=$(aws apigateway get-resources --rest-api-id $API_ID --query "items[?path=='/'].id" --output text)
+V1_ID=$(aws apigateway get-resources --rest-api-id $API_ID --query "items[?path=='/$V1'].id" --output text)
 
-echo "Checking/Creating Resource '/$LOGS_RESOURCE_PATH'..."
-RES_ID=$(aws apigateway get-resources --rest-api-id $API_ID --query "items[?path=='/$LOGS_RESOURCE_PATH'].id" --output text)
+echo "Checking/Creating Resource '$V1/$LOGS_RESOURCE_PATH'..."
+if [ -z "$V1_ID" ]; then
+    V1_ID=$(aws apigateway create-resource --rest-api-id $API_ID --parent-id $ROOT_ID --path-part $V1 --query 'id' --output text)
+    echo "Created resource /v1 with ID: $V1_ID"
+else
+    echo "Resource /v1 already exists."
+fi
+RES_ID=$(aws apigateway get-resources --rest-api-id $API_ID --query "items[?path=='/$V1/$LOGS_RESOURCE_PATH'].id" --output text)
 
 if [ -z "$RES_ID" ]; then
-    RES_ID=$(aws apigateway create-resource --rest-api-id $API_ID --parent-id $ROOT_ID --path-part $LOGS_RESOURCE_PATH --query 'id' --output text)
+    RES_ID=$(aws apigateway create-resource --rest-api-id $API_ID --parent-id $V1_ID --path-part $LOGS_RESOURCE_PATH --query 'id' --output text)
     echo "Created resource $LOGS_RESOURCE_PATH with ID: $RES_ID"
 else
     echo "Resource $LOGS_RESOURCE_PATH already exists."
@@ -162,19 +173,22 @@ aws apigateway put-method --rest-api-id $API_ID --resource-id $RES_ID --http-met
 
 aws apigateway put-integration --rest-api-id $API_ID --resource-id $RES_ID --http-method GET \
     --type AWS_PROXY --integration-http-method POST \
-    --uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:$ACCOUNT_ID:function:$GET_LOGS_FUNC/invocations" >/dev/null 2>&1
+    --uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:$ACCOUNT_ID:function:${API_NAME}_${GET_LOGS_FUNC}/invocations" >/dev/null 2>&1
 
 aws apigateway put-integration --rest-api-id $API_ID --resource-id $RES_ID --http-method POST \
     --type AWS_PROXY --integration-http-method POST \
-    --uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:$ACCOUNT_ID:function:$ADD_LOGS_FUNC/invocations" >/dev/null 2>&1
+    --uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/arn:aws:lambda:$REGION:$ACCOUNT_ID:function:${API_NAME}_$ADD_LOGS_FUNC/invocations" >/dev/null 2>&1
 
 echo "Granting Lambda Permissions..."
 for FUNC_NAME in "${LAMBDA_LISTS[@]}"; do
-  aws lambda add-permission --function-name $FUNC_NAME --statement-id apigateway-invoke \
+  aws lambda add-permission --function-name "${API_NAME}_${FUNC_NAME}" --statement-id apigateway-invoke \
       --action lambda:InvokeFunction --principal apigateway.amazonaws.com \
       --source-arn "arn:aws:execute-api:$REGION:$ACCOUNT_ID:$API_ID/*/*/$LOGS_RESOURCE_PATH" >/dev/null 2>&1 || echo "Permissions already set."
 done
-
+aws apigateway update-rest-api \
+    --rest-api-id "$API_ID" \
+    --region "$REGION" \
+    --patch-operations "$PATCH_OPERATIONS"
 
 echo "Deploying API..."
 aws apigateway create-deployment --rest-api-id $API_ID --stage-name $STAGE_NAME >/dev/null
@@ -192,14 +206,14 @@ INIT_RULE_ARN=$(aws events put-rule \
 echo "Rule created with ARN: $INIT_RULE_ARN"
 echo "Adding permission to Lambda..."
 aws lambda add-permission \
-    --function-name "$INIT_FUNC" \
+    --function-name "${API_NAME}_${INIT_FUNC}" \
     --statement-id "${INIT_FUNC}_EventBridgeLambdaPermission" \
     --action "lambda:InvokeFunction" \
     --principal "events.amazonaws.com" \
     --source-arn "$INIT_RULE_ARN" \
     --region "$REGION"
 echo "Setting Lambda as target..."
-FUNCTION_ARN=$(aws lambda get-function --function-name "$INIT_FUNC" --query 'Configuration.FunctionArn' --output text)
+FUNCTION_ARN=$(aws lambda get-function --function-name "${API_NAME}_${INIT_FUNC}" --query 'Configuration.FunctionArn' --output text)
 aws events put-targets \
     --rule "${INIT_FUNC}_RULE" \
     --targets "Id"="1","Arn"="$FUNCTION_ARN" \

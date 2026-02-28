@@ -1,4 +1,5 @@
-use rootly_lib::prelude::Storage;
+use rootly_lib::prelude::{Storage, DEFAULT_LOG_PATH, DEFAULT_MUTABLE_LOGS_PATH, DEFAULT_TRACE_PATH,
+                          DEFAULT_MUTABLE_TRACE_PATH};
 use std::fs::{File, OpenOptions};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -16,6 +17,29 @@ impl EfsStorage{
     fn get_file_path(&self, file_name: &str) -> PathBuf {
         let file_path = Path::new(&self.mnt_path).join(file_name);
         file_path
+    }
+    
+    pub fn ensure_rootly_directory_exists(&self) {
+        let rootly_path = Path::new(&self.mnt_path);
+        if !rootly_path.exists() {
+            fs::create_dir_all(rootly_path).expect("Unable to create rootly directory");
+        }
+        let logs_path = self.get_file_path(DEFAULT_LOG_PATH);
+        if !logs_path.exists() {
+            fs::create_dir_all(logs_path).expect("Unable to create logs directory");
+        }
+        let traces_path = self.get_file_path(DEFAULT_TRACE_PATH);
+        if !traces_path.exists() {
+            fs::create_dir_all(traces_path).expect("Unable to create traces directory");
+        }
+        let mutable_logs_path = self.get_file_path(DEFAULT_MUTABLE_LOGS_PATH);
+        if !mutable_logs_path.exists() {
+            fs::create_dir_all(mutable_logs_path).expect("Unable to create mutable logs directory");
+        }
+        let mutable_traces_path = self.get_file_path(DEFAULT_MUTABLE_TRACE_PATH);
+        if !mutable_traces_path.exists() {
+            fs::create_dir_all(mutable_traces_path).expect("Unable to create mutable traces directory");
+        }
     }
 }
 impl Storage for EfsStorage {

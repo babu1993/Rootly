@@ -1,17 +1,15 @@
 use crate::model::prelude::*;
 use crate::model::ReadableModel;
-use crate::parsers;
 use crate::storage_api::Storage;
 use config::{Config, Environment, File};
-use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
-use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
-use std::path::{Path, MAIN_SEPARATOR_STR};
-use std::string::ToString;
+use std::path::Path;
 
-const DEFAULT_DATA_PATH: &str = "rootly_data";
-const ROOTLY_CONFIG_FILE_NAME: &str = "rootly.ctx";
-const DEFAULT_LOG_PATH: &str = "log";
-const DEFAULT_TRACE_PATH: &str = "trace";
+pub const DEFAULT_DATA_PATH: &str = "rootly_data";
+pub const ROOTLY_CONFIG_FILE_NAME: &str = "rootly.ctx";
+pub const DEFAULT_LOG_PATH: &str = "log";
+pub const DEFAULT_TRACE_PATH: &str = "trace";
+pub const DEFAULT_MUTABLE_LOGS_PATH: &str = "logs_mutable";
+pub const DEFAULT_MUTABLE_TRACE_PATH: &str = "traces_mutable";
 
 
 pub struct Rootly {
@@ -33,18 +31,14 @@ impl Rootly {
             config_builder = config_builder.set_default("data_path", data_path.clone()).unwrap();
         }
         let config = config_builder.build().unwrap();
-        let mut rootly_ini = None;
-        if storage.is_file_exists(ROOTLY_CONFIG_FILE_NAME) {
-            rootly_ini = storage.read(ROOTLY_CONFIG_FILE_NAME, None, None);
-        }
         let ini:IniFile;
-        if rootly_ini.is_none(){
-            ini = IniFile::build_default();
-            storage.write(ROOTLY_CONFIG_FILE_NAME, ini.to_bytes(), None);
+        if storage.is_file_exists(ROOTLY_CONFIG_FILE_NAME) {
+            let rootly_ini = storage.read(ROOTLY_CONFIG_FILE_NAME, None, None);
+            ini = IniFile::from_bytes(&rootly_ini.as_ref().unwrap());
         }
         else {
-            let rootly_ini = rootly_ini.unwrap();
-            ini = IniFile::from_bytes(&rootly_ini);
+            ini = IniFile::build_default();
+            storage.write(ROOTLY_CONFIG_FILE_NAME, ini.to_bytes(), None);
         }
         println!("{:?}", ini);
         Rootly { config, storage, ini}
@@ -54,6 +48,7 @@ impl Rootly {
     }
 
     pub fn init(data_path: Option<&str>, storage: Box<dyn Storage>) -> Rootly {
+
         Rootly::new(data_path, storage)
     }
 
